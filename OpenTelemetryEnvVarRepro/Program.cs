@@ -1,69 +1,33 @@
+using System.Diagnostics;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
-var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+const string ServiceName = "test-service";
+const string ServiceVersion = "0.0.1";
 
 Environment.SetEnvironmentVariable("OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION", "True"); // This does not work
-            
-var envVar = Environment.GetEnvironmentVariable(
-    "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION"); // This is true
 
-var envVars = Environment.GetEnvironmentVariables(); // Contains the env var
+Debug.Assert(Environment.GetEnvironmentVariable(
+    "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION") == "True"); // This is true
 
-builder.Services
-    .AddOpenTelemetry()
-    .WithTracing(builder =>
+
+var resourceBuilder = ResourceBuilder.CreateDefault()
+    .AddService(ServiceName, serviceVersion: ServiceVersion)
+    .AddAttributes(new Dictionary<string, object>
     {
-        builder.AddAspNetCoreInstrumentation();
-        builder.AddConsoleExporter();
+        { "attribute", "value"}
     });
 
-var app = builder.Build();
+var traceProvider = Sdk.CreateTracerProviderBuilder()
+    .AddSource(ServiceName)
+    .SetResourceBuilder(resourceBuilder)
+    .AddHttpClientInstrumentation()
+    .AddConsoleExporter()
+    .Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+using (var activitySource = new ActivitySource(ServiceName))
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-    {
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-                new WeatherForecast
-                (
-                    DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                    Random.Shared.Next(-20, 55),
-                    summaries[Random.Shared.Next(summaries.Length)]
-                ))
-            .ToArray();
-        return forecast;
-    })
-    .WithName("GetWeatherForecast")
-    .WithOpenApi();
-
-app.MapGet("/search", (string query) =>
-{
-    return $"You searched for: {query}";
-})
-.WithName("Search")
-.WithOpenApi();
-
-
-app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int) (TemperatureC / 0.5556);
+    HttpClient client = new HttpClient();
+    var result = await client.GetAsync("https://postman-echo.com/get?key=SuperImportantValueThatWeNeedToKnow&another=ValueThatDoesntNeedToBeRedacted");
 }
